@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.concurrent.Future;
 
 import org.testng.annotations.Test;
 
@@ -29,10 +30,12 @@ public class TestAsyncWriter {
 		IDataItem line = new LineOfStrDataItem(new String[]{"hello", "world", "test!", "chen"});
 		AsyncWriter asyncWriter = new AsyncWriter(writer);
 		for(int i = 0; i < 10000; i++){
-			asyncWriter.addData(line);
+			Future future = asyncWriter.addData(line);
 		}
-		//while(!asyncWriter.isDone()){
-		//}
+		/**
+		while(!asyncWriter.isDone()){
+		}
+		*/
 		long stop = System.nanoTime();
 		System.out.println("Async Time is " + (stop -start));
 		Thread.sleep(1000);

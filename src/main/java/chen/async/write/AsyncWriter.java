@@ -1,13 +1,20 @@
 package chen.async.write;
 
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import chen.async.write.IDataItem.Status;
 
 /**
  * Not every case is good to use the async writer. Usually for the file, the
@@ -35,8 +42,7 @@ public class AsyncWriter {
 	private IWriter writer;
 	private static Logger log = LoggerFactory.getLogger(AsyncWriter.class);
 	private Thread thread;
-	private AtomicBoolean isDone = new AtomicBoolean(true);
-	private ReadWriteLock lock = new ReentrantReadWriteLock();
+	private IDataItem lastData;
 
 	public AsyncWriter(final IWriter writer) {
 		this.writer = writer;
@@ -49,26 +55,29 @@ public class AsyncWriter {
 		@Override
 		public void run() {
 			while (true) {
-				lock.readLock().lock();
 				try {
-					IDataItem data = buffer.take();
-					isDone.set(false);
-					writer.write(data);
-					isDone.set(true);
-					;
+					// Thread.sleep(100);
+					lastData = buffer.take();
+					synchronized (lastData) {
+						if (lastData.getStatus() == Status.CANCELLED) {
+							continue;
+						}
+						lastData.setStatus(Status.RUNNING);
+					}
+					writer.write(lastData);
+					lastData.setStatus(Status.DONE);
 				} catch (InterruptedException e) {
 					Thread.currentThread().interrupt();
 					log.debug("Blocking Queue is interrupted!", e);
 					return;
-				} finally {
-					lock.readLock().unlock();
 				}
 			}
 		}
 	}
 
-	public void addData(IDataItem data) {
+	public Future addData(IDataItem data) {
 		buffer.add(data);
+		return new FutureAdd(data);
 	}
 
 	public void close() {
@@ -77,15 +86,68 @@ public class AsyncWriter {
 	}
 
 	public boolean isDone() {
-		lock.writeLock().lock();
-		try {
-			if (buffer.size() == 0 && isDone.get()) {
+		if (buffer.size() == 0) {
+			if (lastData == null
+					|| (lastData.getStatus() != Status.WAITING && lastData
+							.getStatus() != Status.RUNNING)) {
 				return true;
 			}
-			return false;
-		} finally {
-			lock.writeLock().unlock();
 		}
+		return false;
+	}
+
+	private class FutureAdd implements Future {
+
+		IDataItem data;
+		boolean isCancel = false;
+
+		public FutureAdd(final IDataItem data) {
+			this.data = data;
+		}
+
+		/*
+		 * @see java.util.concurrent.Future#cancel(boolean)
+		 */
+		@Override
+		public boolean cancel(boolean mayInterruptIfRunning) {
+			synchronized (data) {
+				if (data.getStatus() == Status.WAITING) {
+					isCancel = true;
+					data.setStatus(Status.CANCELLED);
+				} else {
+					isCancel = false;
+				}
+			}
+			return isCancel;
+		}
+
+		/**
+		 * We do not support cancel a write.
+		 * 
+		 */
+
+		@Override
+		public boolean isCancelled() {
+			return isCancel;
+		}
+
+		@Override
+		public boolean isDone() {
+			return data.getStatus() == Status.DONE;
+		}
+
+		@Override
+		public Object get() throws InterruptedException, ExecutionException {
+			return null;
+		}
+
+		@Override
+		public Object get(long timeout, TimeUnit unit)
+				throws InterruptedException, ExecutionException,
+				TimeoutException {
+			return null;
+		}
+
 	}
 
 }

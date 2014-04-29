@@ -3,6 +3,7 @@ package chen.async.write;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.util.concurrent.Future;
 
 import org.testng.annotations.Test;
 
@@ -18,7 +19,8 @@ public class TestAsyncDBWriter {
 		AsyncWriter asyncWriter = new AsyncWriter(writer);
 		for(int i = 0; i < 1000; i++){
 			String[] strs = new String[]{String.valueOf(i), "test"};
-			asyncWriter.addData(new LineOfStrDataItem(strs));
+			Future future = asyncWriter.addData(new LineOfStrDataItem(strs));
+			future.cancel(true);
 		}
 		
 		long stop = System.nanoTime();
